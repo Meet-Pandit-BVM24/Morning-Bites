@@ -1,25 +1,58 @@
-import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import { Switch, Route, Router as WouterRouter } from "wouter";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { StoreProvider } from "@/lib/store";
+import { Layout } from "@/components/layout";
+import NotFound from "@/pages/not-found";
+
+import Dashboard from "@/pages/dashboard";
+import Billing from "@/pages/billing";
+import Preorder from "@/pages/preorder";
+import BillReports from "@/pages/bill-reports";
+import SubDashboard from "@/pages/sub-dashboard";
+import Walkins from "@/pages/walkins";
+import Subscribed from "@/pages/subscribed";
+import SubReports from "@/pages/sub-reports";
+import Packages from "@/pages/packages";
+import Menu from "@/pages/menu";
+import Promotions from "@/pages/promotions";
+
+const queryClient = new QueryClient();
+
+function Router() {
+  return (
+    <Layout>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/billing" component={Billing} />
+        <Route path="/preorder" component={Preorder} />
+        <Route path="/bill-reports" component={BillReports} />
+        <Route path="/sub-dashboard" component={SubDashboard} />
+        <Route path="/walkins" component={Walkins} />
+        <Route path="/subscribed" component={Subscribed} />
+        <Route path="/sub-reports" component={SubReports} />
+        <Route path="/packages" component={Packages} />
+        <Route path="/menu" component={Menu} />
+        <Route path="/promotions" component={Promotions} />
+        <Route component={NotFound} />
+      </Switch>
+    </Layout>
+  );
+}
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <StoreProvider>
+          <WouterRouter base={(process.env.PUBLIC_URL || "/").replace(/\/$/, "")}>
+            <Router />
+          </WouterRouter>
+        </StoreProvider>
+        <Toaster />
+      </TooltipProvider>
+    </QueryClientProvider>
   );
 }
 

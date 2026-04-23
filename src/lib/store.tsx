@@ -1,0 +1,98 @@
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
+import { dbGet, Customer, Walkin, MenuItem, Bill, MealSkip, Package, Promotion, Preorder } from "./supabase";
+import { useToast } from "@/hooks/use-toast";
+
+type StoreState = {
+  customers: Customer[];
+  walkins: Walkin[];
+  menuItems: MenuItem[];
+  bills: Bill[];
+  preorders: Preorder[];
+  mealSkips: MealSkip[];
+  packages: Package[];
+  promotions: Promotion[];
+  isLoading: boolean;
+  error: Error | null;
+  refresh: () => Promise<void>;
+  searchQuery: string;
+  setSearchQuery: (q: string) => void;
+};
+
+const StoreContext = createContext<StoreState | null>(null);
+
+export function StoreProvider({ children }: { children: ReactNode }) {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [walkins, setWalkins] = useState<Walkin[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [preorders, setPreorders] = useState<Preorder[]>([]);
+  const [mealSkips, setMealSkips] = useState<MealSkip[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const { toast } = useToast();
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [c, w, m, b, po, s, p] = await Promise.all([
+        dbGet<Customer>('customers', 'select=*&is_deleted=eq.false'),
+        dbGet<Walkin>('walkins', 'select=*&is_deleted=eq.false'),
+        dbGet<MenuItem>('menu_items'),
+        dbGet<Bill>('bills'),
+        (async () => {
+          try {
+            return await dbGet<Preorder>('preorders');
+          } catch {
+            return [] as Preorder[];
+          }
+        })(),
+        dbGet<MealSkip>('meal_skips'),
+        dbGet<Package>('packages')
+      ]);
+      setCustomers(c);
+      setWalkins(w);
+      setMenuItems(m);
+      setBills(b);
+      setPreorders(po);
+      setMealSkips(s);
+      setPackages(p);
+
+      try {
+        const promo = await dbGet<Promotion>('promotions');
+        setPromotions(promo);
+      } catch {
+        setPromotions([]);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err);
+      toast({ variant: "destructive", title: "Error loading data", description: err.message });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  return (
+    <StoreContext.Provider value={{
+      customers, walkins, menuItems, bills, preorders, mealSkips, packages, promotions,
+      isLoading, error, refresh: loadData,
+      searchQuery, setSearchQuery
+    }}>
+      {children}
+    </StoreContext.Provider>
+  );
+}
+
+export function useStore() {
+  const ctx = useContext(StoreContext);
+  if (!ctx) throw new Error("useStore must be used within StoreProvider");
+  return ctx;
+}
