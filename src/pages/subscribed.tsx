@@ -971,7 +971,7 @@ export default function Subscribed() {
           <div className="py-4 space-y-4">
             <p className="text-sm text-muted-foreground">Cancel subscription for <span className="font-bold text-foreground">{cancelModal.customer?.name}</span>?</p>
             {cancelModal.customer && (() => {
-              const { cp, used, total, packageId } = getDisplayData(cancelModal.customer);
+              const { used, total, packageId } = getDisplayData(cancelModal.customer);
               const pkg = packages.find(p => p.id === packageId);
               const pricePerMeal = pkg ? Math.round(pkg.price / (pkg.meals_count ?? 10)) : 0;
               const remaining = total - used;
