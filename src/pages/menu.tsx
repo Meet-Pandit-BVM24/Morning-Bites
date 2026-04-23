@@ -24,7 +24,7 @@ export default function Menu() {
 
   const [name, setName] = useState("");
   const [sortOrder, setSortOrder] = useState("0");
-  const [options, setOptions] = useState<{ name: string; price: number }[]>([{ name: "Regular", price: 0 }]);
+  const [options, setOptions] = useState<{ name: string; price: string }[]>([{ name: "Regular", price: "" }]);
   const [category, setCategory] = useState<'daily' | 'week_special'>('daily');
   const [weekDays, setWeekDays] = useState<number[]>([]);
 
@@ -35,7 +35,7 @@ export default function Menu() {
     setEditingId(null);
     setName("");
     setSortOrder((menuItems.length * 10).toString());
-    setOptions([{ name: "Regular", price: 0 }]);
+    setOptions([{ name: "Regular", price: "" }]);
     setCategory(tab);
     setWeekDays([]);
     setIsModalOpen(true);
@@ -45,7 +45,7 @@ export default function Menu() {
     setEditingId(item.id);
     setName(item.name);
     setSortOrder(item.sort_order.toString());
-    setOptions([...item.options]);
+    setOptions(item.options.map((o: any) => ({ name: o.name, price: String(o.price) })));
     setCategory(item.category || 'daily');
     setWeekDays(item.week_days || []);
     setIsModalOpen(true);
@@ -69,7 +69,7 @@ export default function Menu() {
       const data: any = {
         name,
         sort_order: Number(sortOrder),
-        options,
+        options: options.map(o => ({ name: o.name, price: Number(o.price) || 0 })),
         category,
         week_days: category === 'week_special' ? weekDays : []
       };
@@ -261,7 +261,7 @@ export default function Menu() {
                   variant="outline"
                   size="sm"
                   className="h-7 text-xs rounded-full"
-                  onClick={() => setOptions([...options, { name: "", price: 0 }])}
+                  onClick={() => setOptions([...options, { name: "", price: "" }])}
                 >
                   <Plus className="w-3 h-3 mr-1" /> Add
                 </Button>
@@ -285,7 +285,7 @@ export default function Menu() {
                         placeholder="Price"
                         value={opt.price}
                         onChange={e => {
-                          const n = [...options]; n[i].price = Number(e.target.value); setOptions(n);
+                          const n = [...options]; n[i] = { ...n[i], price: e.target.value }; setOptions(n);
                         }}
                         className="h-8 text-sm"
                       />

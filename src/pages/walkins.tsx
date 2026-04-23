@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import { dbIns, dbUpd, logActivity, getActivityLogs, formatIST, ActivityLog, UPI_ID } from "@/lib/supabase";
+import { dbIns, dbUpd, logActivity, getActivityLogs, formatIST, formatISTDate, getISTISODate, ActivityLog, UPI_ID } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,11 +65,10 @@ export default function Walkins() {
         logActivity(cust?.id || null, 'edit', `Walk-in info updated: ${name} / ${phone}`);
         toast({ title: "Walk-in updated" });
       } else {
-        // Open WhatsApp FIRST (before any await) so browser allows the popup
-        const msg = `Hello ${name}! 🌱\n\nThank you for visiting Morning Bites today! We're happy to serve you fresh, healthy sprouts food every morning.\n\nWould you like to know about our subscription packs? Ask us in store or reply to this message!\n\nMorning Bites 🌿`;
+        const msg = `Hello ${name}! 🌱\n\nThank you for visiting Morning Bites today! We're happy to serve you fresh, healthy sprouts food every morning.\n\nWould you like to know about our subscription packs? Ask us in store or reply to this message!\n\nTiming: 6:30 AM to 9:00 AM\nCall us: 9099172237 / 9429929822\n\nMorning Bites 🌿`;
         window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(msg)}`, '_blank');
 
-        const today = new Date().toISOString().split('T')[0];
+        const today = getISTISODate();
         await dbIns('walkins', { name, phone, visit_date: today, is_deleted: false });
         const cust = getCustomerForPhone(phone);
         logActivity(cust?.id || null, 'walkin_added', `New walk-in registered: ${name}`);
@@ -104,21 +103,21 @@ export default function Walkins() {
 
     const pkg = activePackages.find(p => p.id.toString() === subPkgId);
     const existingCust = getCustomerForPhone(subWalkin.phone);
-    const today = new Date().toISOString().split('T')[0];
+    const today = getISTISODate();
+    const dateDisplay = formatISTDate(today);
+    const mealsCount = pkg?.meals_count ?? 10;
 
-    // Open WhatsApp FIRST before any await
-    const msg = `Hello ${subWalkin.name}! 🌱\n\nYour Sprouts Salad subscription is now active! 🎉\n\nPack: ${pkg?.name || '10 Meals'}\n✅ 10 fresh meals ready for you\n💰 ₹${pkg?.price || 0} paid via ${subPayMode}\n\nThank you for subscribing! See you every morning.\n\nMorning Bites 🌿`;
+    const msg = `Hello ${subWalkin.name},\n\nWelcome to Morning Bites! 🌿\n\nYour ${pkg?.name || 'Sprouts Salad'} subscription is now active!\n\n📦 Pack: ${mealsCount} meals\n💰 Amount: ₹${pkg?.price || 0}\n📅 Start date: ${dateDisplay}\n\nEnjoy fresh sprouts daily!\n✅ Healthy • Hygienic • Tasty\n\n📍 Akota Garden, Near Radha Krishan Circle, Akota, Vadodara\n⏰ 6:30 AM to 9:00 AM\n📞 9099172237 / 9429929822\n\nSee you tomorrow morning!\nMorning Bites 🌿`;
     window.open(`https://wa.me/91${subWalkin.phone}?text=${encodeURIComponent(msg)}`, '_blank');
 
     try {
       let custId: number | null = null;
 
       if (existingCust) {
-        // Already exists (active or cancelled) → treat as renewal / package change
         await dbUpd('customers', existingCust.id, {
           status: 'active',
           used: 0,
-          total: 10,
+          total: mealsCount,
           renew_count: existingCust.renew_count + 1,
           last_renewed: today,
           pack_start_date: today,
@@ -127,12 +126,11 @@ export default function Walkins() {
         });
         custId = existingCust.id;
       } else {
-        // New customer
         const res = await dbIns<any>('customers', {
           name: subWalkin.name,
           phone: subWalkin.phone,
           type: 'subscribed',
-          total: 10,
+          total: mealsCount,
           used: 0,
           join_date: today,
           renew_count: 0,
@@ -144,6 +142,19 @@ export default function Walkins() {
           payment_mode: subPayMode
         });
         custId = res[0]?.id || null;
+      }
+
+      if (custId) {
+        await dbIns('customer_packages', {
+          customer_id: custId,
+          package_id: Number(subPkgId),
+          used: 0,
+          total: mealsCount,
+          pack_start_date: today,
+          payment_mode: subPayMode,
+          status: 'active',
+          renew_count: existingCust ? existingCust.renew_count + 1 : 0,
+        });
       }
 
       logActivity(custId, existingCust ? 'renewed' : 'subscribed', `${existingCust ? 'Renewed' : 'Subscribed'} to ${pkg?.name || 'package'} for ₹${pkg?.price || 0}. Payment: ${subPayMode}`);
@@ -393,6 +404,7 @@ export default function Walkins() {
                         <SelectItem key={p.id} value={p.id.toString()} className="rounded-lg py-3">
                           <div className="flex justify-between items-center w-full gap-4">
                             <span className="font-bold">{p.name}</span>
+                            <span className="text-muted-foreground text-xs">{p.meals_count ?? 10} meals</span>
                             <span className="text-primary font-bold">₹{p.price}</span>
                           </div>
                         </SelectItem>

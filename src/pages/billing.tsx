@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import { dbIns } from "@/lib/supabase";
+import { dbIns, getISTISODate, getISTDateDisplay } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -76,14 +76,13 @@ export default function Billing() {
     }
     setIsSubmitting(true);
     try {
-      const today = new Date().toLocaleDateString('en-IN');
       await dbIns('bills', {
         customer_name: customerName || null,
         items,
         total_amount: total,
         payment_mode: paymentMode,
         notes: notes || null,
-        bill_date: today
+        bill_date: getISTDateDisplay()
       });
       toast({ title: "Bill generated successfully" });
       setCustomerName("");
@@ -92,6 +91,7 @@ export default function Billing() {
       setQuantities({});
       setCashReceived("");
       setShowQrModal(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       refresh();
     } catch (err: any) {
       toast({ variant: "destructive", description: err.message });

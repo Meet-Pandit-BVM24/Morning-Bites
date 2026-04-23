@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import { dbUpd, dbIns, logActivity, getActivityLogs, formatIST, ActivityLog, UPI_ID } from "@/lib/supabase";
+import { dbUpd, dbIns, dbUpdWhere, logActivity, getActivityLogs, formatIST, formatISTDate, getISTISODate, ActivityLog, UPI_ID, CustomerPackage } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Check, Undo2, SkipForward, RefreshCw, Trash2, Edit, MessageCircle, ChevronLeft, ChevronRight, History, Plus, Banknote, CreditCard, QrCode } from "lucide-react";
+import { Check, Undo2, SkipForward, RefreshCw, Trash2, Edit, MessageCircle, ChevronLeft, ChevronRight, History, Plus, Banknote, CreditCard, QrCode, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
@@ -35,15 +35,28 @@ function PaymentModeSelect({ value, onChange }: { value: string; onChange: (v: s
   );
 }
 
+// WhatsApp message builders
+const buildMealUpdateMsg = (name: string, used: number, remaining: number, total: number) =>
+  `Hello ${name},\n\nHere is your Morning Bites meal update:\n✅ Meals used so far: ${used}\n🥗 Meals remaining: ${remaining}\n📦 Total meals in pack: ${total}\n\nEnjoy your fresh sprouts every morning and stay healthy!\n\nTiming: 6:30 AM to 9:00 AM\nCall us: 9099172237 / 9429929822\n\nThank you,\nMorning Bites 🌿`;
+
+const buildRenewPackMsg = (name: string, remaining: number, total: number, price: number) =>
+  `Hello ${name},\n\nYou currently have ${remaining} meal(s) remaining.\n\nRenew your pack today!\n🎉 ${total} fresh sprout meals for just ₹${price}!\n\n📍 Akota Garden, Vadodara\n⏰ 6:30 AM to 9:00 AM\n📞 9099172237 / 9429929822\n\nThank you,\nMorning Bites 🌿`;
+
+const buildPackDoneMsg = (name: string, total: number, price: number) =>
+  `Hello ${name},\n\nAll ${total} meals have been used.\n\nRenew today!\n🎉 ${total} fresh sprout meals for just ₹${price}!\n\n📍 Akota Garden, Vadodara\n⏰ 6:30 AM to 9:00 AM\n📞 9099172237 / 9429929822\n\nThank you,\nMorning Bites 🌿`;
+
+const buildActiveSubMsg = (name: string, pkgName: string, total: number, price: number, startDate: string) =>
+  `Hello ${name},\n\nWelcome to Morning Bites! 🌿\n\nYour ${pkgName} subscription is now active!\n\n📦 Pack: ${total} meals\n💰 Amount: ₹${price}\n📅 Start date: ${startDate}\n\nEnjoy fresh sprouts daily!\n✅ Healthy • Hygienic • Tasty\n\n📍 Akota Garden, Near Radha Krishan Circle, Akota, Vadodara\n⏰ 6:30 AM to 9:00 AM\n📞 9099172237 / 9429929822\n\nSee you tomorrow morning!\nMorning Bites 🌿`;
+
 export default function Subscribed() {
-  const { customers, packages, walkins, mealSkips, refresh, searchQuery } = useStore();
+  const { customers, packages, walkins, mealSkips, customerPackages, refresh, searchQuery } = useStore();
   const { toast } = useToast();
 
   const [filter, setFilter] = useState("all");
 
-  const [notifyModal, setNotifyModal] = useState<{ open: boolean; customer: any; type: string }>({ open: false, customer: null, type: "" });
+  const [notifyModal, setNotifyModal] = useState<{ open: boolean; customer: any; type: string; cp: CustomerPackage | null }>({ open: false, customer: null, type: "", cp: null });
   const [skipModal, setSkipModal] = useState<{ open: boolean; customer: any }>({ open: false, customer: null });
-  const [skipDate, setSkipDate] = useState(new Date().toISOString().split('T')[0]);
+  const [skipDate, setSkipDate] = useState(getISTISODate());
   const [editModal, setEditModal] = useState<{ open: boolean; customer: any }>({ open: false, customer: null });
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
@@ -51,7 +64,17 @@ export default function Subscribed() {
   const [editMode, setEditMode] = useState<any>("");
   const [weekOffset, setWeekOffset] = useState<Record<number, number>>({});
 
-  const [cancelModal, setCancelModal] = useState<{ open: boolean; customer: any }>({ open: false, customer: null });
+  // selected customer_package id per customer card
+  const [selectedCpId, setSelectedCpId] = useState<Record<number, number>>({});
+
+  // Add package to existing customer (from edit modal)
+  const [addPkgModal, setAddPkgModal] = useState<{ open: boolean; customer: any }>({ open: false, customer: null });
+  const [addPkgPkgId, setAddPkgPkgId] = useState("");
+  const [addPkgPayMode, setAddPkgPayMode] = useState("cash");
+  const [addPkgCash, setAddPkgCash] = useState("");
+  const [addPkgQrOpen, setAddPkgQrOpen] = useState(false);
+
+  const [cancelModal, setCancelModal] = useState<{ open: boolean; customer: any; cp: CustomerPackage | null }>({ open: false, customer: null, cp: null });
 
   const [addModal, setAddModal] = useState(false);
   const [addName, setAddName] = useState("");
@@ -65,27 +88,55 @@ export default function Subscribed() {
   const [historyLogs, setHistoryLogs] = useState<ActivityLog[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  const [mealUsedModal, setMealUsedModal] = useState<{ open: boolean; customer: any }>({ open: false, customer: null });
+  const [mealUsedModal, setMealUsedModal] = useState<{ open: boolean; customer: any; used: number; total: number; pkgName: string }>({ open: false, customer: null, used: 0, total: 0, pkgName: '' });
 
+  // ─── helpers ──────────────────────────────────────────────────────────────
   const activeSubs = customers.filter(c => !c.is_deleted);
+
+  const getCustPacks = (customerId: number) =>
+    customerPackages.filter(cp => cp.customer_id === customerId && cp.status !== 'cancelled')
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const getSelectedCp = (c: any): CustomerPackage | null => {
+    const cps = getCustPacks(c.id);
+    if (cps.length === 0) return null;
+    return cps.find(cp => cp.id === selectedCpId[c.id]) || cps[0];
+  };
+
+  const getDisplayData = (c: any) => {
+    const cp = getSelectedCp(c);
+    return {
+      cp,
+      used: cp ? cp.used : c.used,
+      total: cp ? cp.total : c.total,
+      packageId: cp ? cp.package_id : c.package_id,
+    };
+  };
+
+  const activePackages = packages.filter(p => p.is_active);
 
   const filteredSubs = activeSubs.filter(c => {
     if (searchQuery && !c.name.toLowerCase().includes(searchQuery.toLowerCase()) && !c.phone.includes(searchQuery)) return false;
-    if (filter === "active") return c.status === 'active' && c.used < c.total;
-    if (filter === "low") return c.status === 'active' && (c.total - c.used) <= 2 && c.used < c.total;
-    if (filter === "done") return c.status === 'active' && c.used >= c.total;
+    const { used, total } = getDisplayData(c);
+    if (filter === "active") return c.status === 'active' && used < total;
+    if (filter === "low") return c.status === 'active' && (total - used) <= 2 && used < total;
+    if (filter === "done") return c.status === 'active' && used >= total;
     if (filter === "new") return c.status === 'active' && c.renew_count === 0;
     if (filter === "renewed") return c.status === 'active' && c.renew_count > 0;
     return true;
   });
 
-  const activePackages = packages.filter(p => p.is_active);
   const selectedAddPkg = activePackages.find(p => p.id.toString() === addPkgId);
   const addTotal = selectedAddPkg?.price || 0;
   const addCashNum = Number(addCash) || 0;
   const addChange = addCashNum - addTotal;
   const addUpiUrl = `upi://pay?pa=${UPI_ID}&pn=Morning+Bites&am=${addTotal}&cu=INR`;
 
+  const selectedAddPkgPkg = activePackages.find(p => p.id.toString() === addPkgPkgId);
+  const addPkgTotal = selectedAddPkgPkg?.price || 0;
+  const addPkgUpiUrl = `upi://pay?pa=${UPI_ID}&pn=Morning+Bites&am=${addPkgTotal}&cu=INR`;
+
+  // ─── Add customer ─────────────────────────────────────────────────────────
   const handleAddCustomer = async () => {
     if (!addName.trim() || !addPhone.trim() || !addPkgId) {
       toast({ variant: "destructive", description: "All fields required" });
@@ -97,20 +148,20 @@ export default function Subscribed() {
     }
 
     const pkg = selectedAddPkg;
+    const today = getISTISODate();
+    const dateDisplay = formatISTDate(today);
+    const mealsCount = pkg?.meals_count ?? 10;
 
-    // Open WhatsApp FIRST (before any await) so browser allows the popup
-    const msg = `Hello ${addName}! 🌱\n\nYour Sprouts Salad subscription is now active! 🎉\n\nPack: ${pkg?.name || '10 Meals'}\n✅ 10 fresh meals ready for you\n💰 ₹${pkg?.price || 0} paid via ${addPayMode}\n\nThank you for subscribing! See you every morning.\n\nMorning Bites 🌿`;
+    const msg = buildActiveSubMsg(addName, pkg?.name || 'Sprouts Salad', mealsCount, pkg?.price || 0, dateDisplay);
     window.open(`https://wa.me/91${addPhone}?text=${encodeURIComponent(msg)}`, '_blank');
 
     try {
-      const today = new Date().toISOString().split('T')[0];
       const existingCust = customers.find(c => c.phone === addPhone);
       let custId: number | null = null;
 
       if (existingCust) {
-        // Existing customer (active or cancelled) → treat as renewal / package change
         await dbUpd('customers', existingCust.id, {
-          name: addName, status: 'active', used: 0, total: 10,
+          name: addName, status: 'active', used: 0, total: mealsCount,
           renew_count: existingCust.renew_count + 1,
           last_renewed: today, pack_start_date: today,
           package_id: Number(addPkgId), payment_mode: addPayMode
@@ -119,12 +170,25 @@ export default function Subscribed() {
       } else {
         const res = await dbIns<any>('customers', {
           name: addName, phone: addPhone, type: 'subscribed',
-          total: 10, used: 0, join_date: today, renew_count: 0,
+          total: mealsCount, used: 0, join_date: today, renew_count: 0,
           pack_start_date: today, status: 'active', is_deleted: false,
           preferred_days: [], package_id: Number(addPkgId), payment_mode: addPayMode
         });
         custId = res[0]?.id || null;
         await dbIns('walkins', { name: addName, phone: addPhone, visit_date: today, is_deleted: false });
+      }
+
+      if (custId) {
+        await dbIns('customer_packages', {
+          customer_id: custId,
+          package_id: Number(addPkgId),
+          used: 0,
+          total: mealsCount,
+          pack_start_date: today,
+          payment_mode: addPayMode,
+          status: 'active',
+          renew_count: existingCust ? existingCust.renew_count + 1 : 0,
+        });
       }
 
       logActivity(custId, existingCust ? 'renewed' : 'subscribed', `${existingCust ? 'Renewed' : 'Subscribed'} to ${pkg?.name || 'package'} for ₹${pkg?.price || 0}. Payment: ${addPayMode}`);
@@ -139,29 +203,90 @@ export default function Subscribed() {
     }
   };
 
-  const handleUseMeal = async (c: any) => {
+  // ─── Add package to existing customer ─────────────────────────────────────
+  const handleAddPackageToCustomer = async () => {
+    const c = addPkgModal.customer;
+    if (!c || !addPkgPkgId) {
+      toast({ variant: "destructive", description: "Select a package" });
+      return;
+    }
+    if (addPkgPayMode === 'scanpay' && !addPkgQrOpen) {
+      setAddPkgQrOpen(true);
+      return;
+    }
+
+    const pkg = activePackages.find(p => p.id.toString() === addPkgPkgId);
+    const today = getISTISODate();
+    const dateDisplay = formatISTDate(today);
+    const mealsCount = pkg?.meals_count ?? 10;
+
+    const msg = buildActiveSubMsg(c.name, pkg?.name || 'Sprouts Salad', mealsCount, pkg?.price || 0, dateDisplay);
+    window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+
     try {
-      await dbUpd('customers', c.id, { used: c.used + 1 });
-      await logActivity(c.id, 'meal_used', `Meal used. Now ${c.used + 1} / ${c.total}`);
+      await dbIns('customer_packages', {
+        customer_id: c.id,
+        package_id: Number(addPkgPkgId),
+        used: 0,
+        total: mealsCount,
+        pack_start_date: today,
+        payment_mode: addPkgPayMode,
+        status: 'active',
+        renew_count: 0,
+      });
+
+      logActivity(c.id, 'pkg_added', `Additional package added: ${pkg?.name} for ₹${pkg?.price}`);
+      toast({ title: "Package added!" });
+      setAddPkgModal({ open: false, customer: null });
+      setAddPkgQrOpen(false);
+      setAddPkgPkgId(""); setAddPkgPayMode("cash"); setAddPkgCash("");
       refresh();
-      setMealUsedModal({ open: true, customer: { ...c, used: c.used + 1 } });
     } catch (err: any) {
       toast({ variant: "destructive", description: err.message });
     }
   };
 
-  const handleSendMealUpdate = (c: any) => {
-    const remaining = c.total - c.used;
-    const msg = `Hello ${c.name},\n\nMeal update for your Morning Bites pack:\n\n✅ Meals used: ${c.used}\n⏳ Remaining: ${remaining}\n\n${remaining <= 2 ? '⚠️ Your pack is running low! Visit us to renew soon.' : 'Enjoy your fresh meal! 🌿'}\n\nThank you,\nMorning Bites 🌿`;
-    window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
-    setMealUsedModal({ open: false, customer: null });
+  // ─── Mark meal used ───────────────────────────────────────────────────────
+  const handleUseMeal = async (c: any, cp: CustomerPackage | null) => {
+    const currentUsed = cp ? cp.used : c.used;
+    const currentTotal = cp ? cp.total : c.total;
+    if (currentUsed >= currentTotal) return;
+
+    try {
+      if (cp) {
+        await dbUpd('customer_packages', cp.id, { used: cp.used + 1 });
+        await dbUpd('customers', c.id, { used: c.used + 1 });
+      } else {
+        await dbUpd('customers', c.id, { used: c.used + 1 });
+      }
+      const newUsed = currentUsed + 1;
+      await logActivity(c.id, 'meal_used', `Meal used. Now ${newUsed}/${currentTotal}`);
+      const pkg = packages.find(p => p.id === (cp ? cp.package_id : c.package_id));
+      refresh();
+      setMealUsedModal({ open: true, customer: c, used: newUsed, total: currentTotal, pkgName: pkg?.name || '' });
+    } catch (err: any) {
+      toast({ variant: "destructive", description: err.message });
+    }
   };
 
-  const handleUndo = async (c: any) => {
-    if (c.used === 0) return;
+  const handleSendMealUpdate = (customer: any, used: number, remaining: number, total: number) => {
+    const msg = buildMealUpdateMsg(customer.name, used, remaining, total);
+    window.open(`https://wa.me/91${customer.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    setMealUsedModal({ open: false, customer: null, used: 0, total: 0, pkgName: '' });
+  };
+
+  // ─── Undo meal ────────────────────────────────────────────────────────────
+  const handleUndo = async (c: any, cp: CustomerPackage | null) => {
+    const currentUsed = cp ? cp.used : c.used;
+    if (currentUsed === 0) return;
     try {
-      await dbUpd('customers', c.id, { used: c.used - 1 });
-      await logActivity(c.id, 'meal_undo', `Meal use undone. Now ${c.used - 1} / ${c.total}`);
+      if (cp) {
+        await dbUpd('customer_packages', cp.id, { used: cp.used - 1 });
+        await dbUpd('customers', c.id, { used: Math.max(0, c.used - 1) });
+      } else {
+        await dbUpd('customers', c.id, { used: c.used - 1 });
+      }
+      await logActivity(c.id, 'meal_undo', `Meal use undone. Now ${currentUsed - 1}/${cp ? cp.total : c.total}`);
       toast({ title: "Meal use undone" });
       refresh();
     } catch (err: any) {
@@ -169,21 +294,44 @@ export default function Subscribed() {
     }
   };
 
-  const handleRenew = async (c: any) => {
+  // ─── Renew ────────────────────────────────────────────────────────────────
+  const handleRenew = async (c: any, cp: CustomerPackage | null) => {
     if (!window.confirm(`Renew pack for ${c.name}?`)) return;
 
-    // Open WhatsApp FIRST before any await
-    const pkg = packages.find(p => p.id === c.package_id);
-    const msg = `Hello ${c.name}! 🔄\n\nGreat news — your Morning Bites pack has been renewed! 🎉\n\n✅ 10 fresh meals ready again\n📦 Pack #${c.renew_count + 1}\n\nSee you every morning!\n\nMorning Bites 🌿`;
+    const pkgId = cp ? cp.package_id : c.package_id;
+    const pkg = packages.find(p => p.id === pkgId);
+    const today = getISTISODate();
+    const dateDisplay = formatISTDate(today);
+    const mealsCount = pkg?.meals_count ?? cp?.total ?? 10;
+
+    const msg = buildActiveSubMsg(c.name, pkg?.name || 'Sprouts Salad', mealsCount, pkg?.price || 0, dateDisplay);
     window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
 
     try {
-      const today = new Date().toISOString().split('T')[0];
-      await dbUpd('customers', c.id, {
-        used: 0, total: 10,
-        renew_count: c.renew_count + 1,
-        last_renewed: today, pack_start_date: today, status: 'active'
-      });
+      if (cp) {
+        await dbUpd('customer_packages', cp.id, {
+          used: 0,
+          total: mealsCount,
+          renew_count: cp.renew_count + 1,
+          last_renewed: today,
+          pack_start_date: today,
+          status: 'active'
+        });
+        await dbUpd('customers', c.id, {
+          used: 0, total: mealsCount,
+          renew_count: c.renew_count + 1,
+          last_renewed: today, pack_start_date: today, status: 'active'
+        });
+      } else {
+        await dbUpd('customers', c.id, {
+          used: 0, total: mealsCount,
+          renew_count: c.renew_count + 1,
+          last_renewed: today, pack_start_date: today, status: 'active'
+        });
+      }
+      // Clear all future skips on renewal
+      await dbUpdWhere('meal_skips', `customer_id=eq.${c.id}&skip_date=gte.${today}&unskipped=eq.false`, { unskipped: true });
+
       logActivity(c.id, 'renewed', `Pack renewed (×${c.renew_count + 1}). Package: ${pkg?.name || 'unknown'}`);
       toast({ title: "Pack renewed successfully!" });
       refresh();
@@ -192,34 +340,46 @@ export default function Subscribed() {
     }
   };
 
-  const handleCancel = async (c: any) => {
-    setCancelModal({ open: true, customer: c });
+  // ─── Cancel ───────────────────────────────────────────────────────────────
+  const handleCancel = (c: any, cp: CustomerPackage | null) => {
+    setCancelModal({ open: true, customer: c, cp });
   };
 
   const handleConfirmCancel = async (sendReturn: boolean) => {
-    const c = cancelModal.customer;
+    const { customer: c, cp } = cancelModal;
     if (!c) return;
 
-    // Open WhatsApp FIRST before any await
     if (sendReturn) {
-      const pkg = packages.find(p => p.id === c.package_id);
-      const pricePerMeal = pkg ? Math.round(pkg.price / 10) : 0;
-      const refundAmount = (c.total - c.used) * pricePerMeal;
-      const msg = `Hello ${c.name},\n\nYour Morning Bites subscription has been cancelled.\n\n📊 Meals Used: ${c.used}/${c.total}\n💰 Refund Amount: ₹${refundAmount} (${c.total - c.used} meals × ₹${pricePerMeal})\n\nWe hope to see you again! 🌿\n\nMorning Bites`;
+      const pkgId = cp ? cp.package_id : c.package_id;
+      const pkg = packages.find(p => p.id === pkgId);
+      const pricePerMeal = pkg ? Math.round(pkg.price / (pkg.meals_count ?? 10)) : 0;
+      const used = cp ? cp.used : c.used;
+      const total = cp ? cp.total : c.total;
+      const refundAmount = (total - used) * pricePerMeal;
+      const msg = `Hello ${c.name},\n\nYour Morning Bites subscription has been cancelled.\n\n📊 Meals Used: ${used}/${total}\n💰 Refund Amount: ₹${refundAmount} (${total - used} meals × ₹${pricePerMeal})\n\nWe hope to see you again! 🌿\n\nMorning Bites`;
       window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
     }
 
     try {
-      await dbUpd('customers', c.id, { status: 'cancelled' });
-      logActivity(c.id, 'cancelled', `Subscription cancelled. ${c.total - c.used} meals remaining.`);
+      if (cp) {
+        await dbUpd('customer_packages', cp.id, { status: 'cancelled' });
+        const remaining = getCustPacks(c.id).filter(x => x.id !== cp.id);
+        if (remaining.length === 0) {
+          await dbUpd('customers', c.id, { status: 'cancelled' });
+        }
+      } else {
+        await dbUpd('customers', c.id, { status: 'cancelled' });
+      }
+      logActivity(c.id, 'cancelled', 'Subscription cancelled.');
       toast({ title: "Subscription cancelled" });
-      setCancelModal({ open: false, customer: null });
+      setCancelModal({ open: false, customer: null, cp: null });
       refresh();
     } catch (err: any) {
       toast({ variant: "destructive", description: err.message });
     }
   };
 
+  // ─── Delete ───────────────────────────────────────────────────────────────
   const handleDelete = async (c: any) => {
     if (window.confirm("Delete this customer? They will be removed from both Subscribed and Walk-ins.")) {
       try {
@@ -227,7 +387,7 @@ export default function Subscribed() {
         const walkin = walkins.find(w => w.phone === c.phone);
         if (walkin) await dbUpd('walkins', walkin.id, { is_deleted: true });
         await logActivity(c.id, 'deleted', 'Customer deleted (soft)');
-        toast({ title: "Customer deleted from both screens" });
+        toast({ title: "Customer deleted" });
         refresh();
       } catch (err: any) {
         toast({ variant: "destructive", description: err.message });
@@ -235,27 +395,37 @@ export default function Subscribed() {
     }
   };
 
+  // ─── Notify ───────────────────────────────────────────────────────────────
   const sendWhatsApp = () => {
     const c = notifyModal.customer;
+    const cp = notifyModal.cp;
     if (!c) return;
+
+    const pkgId = cp ? cp.package_id : c.package_id;
+    const pkg = packages.find(p => p.id === pkgId);
+    const used = cp ? cp.used : c.used;
+    const total = cp ? cp.total : c.total;
+    const remaining = total - used;
+    const price = pkg?.price || 0;
+
     let msg = "";
     if (notifyModal.type === 'meal') {
-      msg = `Hello ${c.name},\n\nMeal Update — Morning Bites 🌿\n\n✅ Meals used: ${c.used}/${c.total}\n⏳ Remaining: ${c.total - c.used}\n\nThank you!`;
+      msg = buildMealUpdateMsg(c.name, used, remaining, total);
     } else if (notifyModal.type === 'low') {
-      msg = `Hello ${c.name},\n\nYour Morning Bites pack is running low!\n\n⚠️ Only ${c.total - c.used} meal(s) remaining\n\n🔄 Ready to renew? Visit us to activate your next pack!\n\nMorning Bites 🌿`;
+      msg = buildRenewPackMsg(c.name, remaining, total, price);
     } else if (notifyModal.type === 'done') {
-      msg = `Hello ${c.name},\n\nPack Complete! 🎉\n\nYou've enjoyed all ${c.total} meals in this pack.\n\n🔄 Visit us to renew and keep the momentum going!\n\nMorning Bites 🌿`;
+      msg = buildPackDoneMsg(c.name, total, price);
     }
     window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
-    setNotifyModal({ open: false, customer: null, type: "" });
+    setNotifyModal({ open: false, customer: null, type: "", cp: null });
   };
 
+  // ─── Skip ─────────────────────────────────────────────────────────────────
   const handleSkip = async () => {
     const c = skipModal.customer;
     if (!c || !skipDate) return;
 
-    // Open WhatsApp FIRST before any await
-    const d = new Date(skipDate);
+    const d = new Date(skipDate + 'T00:00:00');
     const dayName = d.toLocaleDateString('en-IN', { weekday: 'long' });
     const dateStr = d.toLocaleDateString('en-IN');
     const msg = `Hello ${c.name},\n\nConfirmed — your Morning Bites pack is skipped for:\n\n📅 ${dayName}, ${dateStr}\n\nYour remaining meals stay the same. See you on your next day!\n\nMorning Bites 🌿`;
@@ -272,6 +442,19 @@ export default function Subscribed() {
     }
   };
 
+  // ─── Unskip ───────────────────────────────────────────────────────────────
+  const handleUnskip = async (skipId: number, customerId: number) => {
+    try {
+      await dbUpd('meal_skips', skipId, { unskipped: true });
+      logActivity(customerId, 'meal_unskipped', 'Skip removed');
+      toast({ title: "Skip removed" });
+      refresh();
+    } catch (err: any) {
+      toast({ variant: "destructive", description: err.message });
+    }
+  };
+
+  // ─── Preferred days ───────────────────────────────────────────────────────
   const handleTogglePrefDay = async (c: any, dayIdx: number) => {
     let newPrefs = [...(c.preferred_days || [])];
     if (newPrefs.length === 0) {
@@ -292,6 +475,7 @@ export default function Subscribed() {
     }
   };
 
+  // ─── Edit ─────────────────────────────────────────────────────────────────
   const openEdit = (c: any) => {
     setEditModal({ open: true, customer: c });
     setEditName(c.name);
@@ -320,6 +504,7 @@ export default function Subscribed() {
     }
   };
 
+  // ─── History ──────────────────────────────────────────────────────────────
   const openHistory = async (c: any) => {
     setHistoryModal({ open: true, customer: c });
     setHistoryLoading(true);
@@ -328,6 +513,7 @@ export default function Subscribed() {
     setHistoryLoading(false);
   };
 
+  // ─── Week helpers ──────────────────────────────────────────────────────────
   const getWeekDays = (offset: number) => {
     const today = new Date();
     const currentDay = today.getDay();
@@ -339,7 +525,7 @@ export default function Subscribed() {
       d.setDate(monday.getDate() + i);
       return {
         date: d,
-        iso: d.toISOString().split('T')[0],
+        iso: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d),
         dayStr: DAYS[i][0],
         dateStr: d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit' })
       };
@@ -359,7 +545,13 @@ export default function Subscribed() {
     <div className="flex flex-col gap-5 animate-in fade-in duration-300 pb-8">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold">Subscribed</h2>
-        <Button onClick={() => { setAddModal(true); setAddQrOpen(false); setAddName(""); setAddPhone(""); setAddPkgId(activePackages[0]?.id.toString() || ""); setAddPayMode("cash"); setAddCash(""); }} className="rounded-full shadow-md font-bold px-4">
+        <Button
+          onClick={() => {
+            setAddModal(true); setAddQrOpen(false); setAddName(""); setAddPhone("");
+            setAddPkgId(activePackages[0]?.id.toString() || ""); setAddPayMode("cash"); setAddCash("");
+          }}
+          className="rounded-full shadow-md font-bold px-4"
+        >
           <Plus className="w-4 h-4 mr-1.5" /> Add
         </Button>
       </div>
@@ -388,17 +580,19 @@ export default function Subscribed() {
           </div>
         ) : (
           filteredSubs.map(c => {
-            const pkg = packages.find(p => p.id === c.package_id);
-            const isDone = c.used >= c.total;
-            const isLow = (c.total - c.used) <= 2 && !isDone;
-            const progressPercent = (c.used / c.total) * 100;
+            const custPacks = getCustPacks(c.id);
+            const { cp, used, total, packageId } = getDisplayData(c);
+            const pkg = packages.find(p => p.id === packageId);
+            const isDone = used >= total;
+            const isLow = (total - used) <= 2 && !isDone;
+            const progressPercent = total > 0 ? (used / total) * 100 : 0;
             const isWalkin = walkins.some(w => w.phone === c.phone);
             const offset = weekOffset[c.id] || 0;
             const weekDays = getWeekDays(offset);
 
             return (
               <Card key={c.id} className={cn("border border-border shadow-sm overflow-hidden transition-all duration-200", c.status === 'cancelled' ? 'opacity-60' : 'hover:shadow-md')}>
-                <div className={cn("h-1.5 w-full", isDone ? 'bg-gray-400' : isLow ? 'bg-secondary' : 'bg-primary')}></div>
+                <div className={cn("h-1.5 w-full", isDone ? 'bg-gray-400' : isLow ? 'bg-secondary' : 'bg-primary')} />
 
                 <CardContent className="p-5 flex flex-col gap-5">
                   <div className="flex justify-between items-start">
@@ -407,14 +601,41 @@ export default function Subscribed() {
                       <div className="text-sm font-medium text-muted-foreground mt-0.5">{c.phone}</div>
                     </div>
                     <div className="flex flex-col items-end gap-1.5">
+                      {/* Package selector / label */}
+                      {custPacks.length > 1 ? (
+                        <Select
+                          value={(selectedCpId[c.id] || custPacks[0]?.id)?.toString()}
+                          onValueChange={v => setSelectedCpId(p => ({ ...p, [c.id]: Number(v) }))}
+                        >
+                          <SelectTrigger className="h-7 text-xs border-primary/20 text-primary w-auto min-w-[100px] max-w-[140px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {custPacks.map(xcp => {
+                              const xpkg = packages.find(p => p.id === xcp.package_id);
+                              return (
+                                <SelectItem key={xcp.id} value={xcp.id.toString()}>
+                                  {xpkg?.name || 'Pack'} ({xcp.total - xcp.used} left)
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      ) : pkg ? (
+                        <div className="text-[11px] font-semibold text-primary/80 bg-primary/5 px-2 py-0.5 rounded-full border border-primary/10">
+                          {pkg.name}
+                        </div>
+                      ) : null}
+
+                      {/* Meals left badge */}
                       {c.status === 'cancelled' ? (
                         <Badge variant="destructive" className="font-bold">Cancelled</Badge>
                       ) : isDone ? (
                         <Badge className="bg-gray-200 text-gray-700 font-bold">Pack Done</Badge>
                       ) : isLow ? (
-                        <Badge className="bg-secondary text-secondary-foreground font-bold">Low: {c.total - c.used} left</Badge>
+                        <Badge className="bg-secondary text-secondary-foreground font-bold">Low: {total - used} left</Badge>
                       ) : (
-                        <Badge className="bg-primary/10 text-primary font-bold border-primary/20">{c.total - c.used} left</Badge>
+                        <Badge className="bg-primary/10 text-primary font-bold border-primary/20">{total - used} left</Badge>
                       )}
                     </div>
                   </div>
@@ -426,14 +647,16 @@ export default function Subscribed() {
                     ) : (
                       <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-[11px] rounded-lg">Renewed ×{c.renew_count}</Badge>
                     )}
-                    {pkg && <Badge variant="outline" className="text-[11px] rounded-lg">{pkg.name}</Badge>}
+                    {custPacks.length > 1 && (
+                      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[11px] rounded-lg">{custPacks.length} packs</Badge>
+                    )}
                     <Badge variant="outline" className="text-[11px] rounded-lg uppercase">{c.payment_mode}</Badge>
                   </div>
 
                   <div className="space-y-2 bg-muted/20 p-3 rounded-xl border border-border">
                     <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-muted-foreground">
                       <span>Meals Used</span>
-                      <span className="text-foreground">{c.used} / {c.total}</span>
+                      <span className="text-foreground">{used} / {total}</span>
                     </div>
                     <Progress value={progressPercent} className={cn("h-3 bg-muted", isDone ? '[&>div]:bg-gray-400' : isLow ? '[&>div]:bg-secondary' : '[&>div]:bg-primary')} />
                   </div>
@@ -456,32 +679,44 @@ export default function Subscribed() {
                         const isScheduled = c.preferred_days.length === 0 || c.preferred_days.includes(i);
                         const skip = mealSkips.find(s => s.customer_id === c.id && s.skip_date === d.iso && !s.unskipped);
                         const isSkipped = !!skip;
-                        const isToday = d.iso === new Date().toISOString().split('T')[0];
+                        const isToday = d.iso === getISTISODate();
                         return (
                           <div
                             key={i}
-                            onClick={() => handleTogglePrefDay(c, i)}
+                            onClick={() => {
+                              if (isSkipped && skip) {
+                                handleUnskip(skip.id, c.id);
+                              } else {
+                                handleTogglePrefDay(c, i);
+                              }
+                            }}
                             className={cn(
                               "flex flex-col items-center justify-center flex-1 py-2 rounded-lg cursor-pointer border-2 transition-all duration-200",
                               isSkipped ? 'bg-orange-50 border-orange-200 text-orange-800' :
                                 isScheduled ? 'bg-primary border-primary text-primary-foreground shadow-md' :
                                   'bg-card border-transparent text-muted-foreground hover:border-border',
-                              isToday && !isScheduled ? 'ring-2 ring-primary/30 ring-offset-1' : ''
+                              isToday && !isSkipped ? 'ring-2 ring-primary/30 ring-offset-1' : ''
                             )}
+                            title={isSkipped ? 'Tap to remove skip' : isScheduled ? 'Tap to skip this day' : 'Tap to schedule this day'}
                           >
                             <div className="text-[11px] font-bold">{d.dayStr}</div>
                             <div className={cn("text-[10px] mt-0.5 font-medium", isScheduled ? 'opacity-90' : 'opacity-60')}>{d.dateStr.split('/')[0]}</div>
-                            {isSkipped && <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-1"></div>}
+                            {isSkipped && <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-1" />}
                           </div>
                         );
                       })}
                     </div>
+                    {mealSkips.some(s => s.customer_id === c.id && !s.unskipped) && (
+                      <div className="px-3 pb-2 text-[10px] text-orange-600 font-medium">
+                        Tap orange day to remove skip
+                      </div>
+                    )}
                   </div>
 
                   <div className="pt-2">
                     <div className="flex gap-3 mb-3">
                       <Button
-                        onClick={() => handleUseMeal(c)}
+                        onClick={() => handleUseMeal(c, cp)}
                         disabled={isDone || c.status === 'cancelled'}
                         className="flex-1 h-14 rounded-xl shadow-md font-bold text-lg"
                       >
@@ -489,8 +724,8 @@ export default function Subscribed() {
                       </Button>
                       <Button
                         variant="outline"
-                        onClick={() => handleUndo(c)}
-                        disabled={c.used === 0 || c.status === 'cancelled'}
+                        onClick={() => handleUndo(c, cp)}
+                        disabled={used === 0 || c.status === 'cancelled'}
                         className="w-14 h-14 rounded-xl border-border bg-card hover:bg-muted"
                       >
                         <Undo2 className="w-5 h-5" />
@@ -500,7 +735,7 @@ export default function Subscribed() {
                     <div className="flex gap-2 flex-wrap">
                       {isDone ? (
                         <Button
-                          onClick={() => handleRenew(c)}
+                          onClick={() => handleRenew(c, cp)}
                           disabled={c.status === 'cancelled'}
                           className="flex-1 h-10 rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/90 font-bold"
                         >
@@ -509,17 +744,18 @@ export default function Subscribed() {
                       ) : (
                         <Button
                           variant="outline"
-                          onClick={() => setNotifyModal({ open: true, customer: c, type: isLow ? 'low' : 'meal' })}
+                          onClick={() => setNotifyModal({ open: true, customer: c, type: isLow ? 'low' : 'meal', cp })}
                           disabled={c.status === 'cancelled'}
-                          className="flex-1 h-10 rounded-lg border-primary/20 text-primary hover:bg-primary/5 font-semibold"
+                          className="w-10 h-10 rounded-lg p-0 border-primary/20 text-primary hover:bg-primary/5"
+                          title="Notify"
                         >
-                          <MessageCircle className="w-4 h-4 mr-1.5" /> Notify
+                          <MessageCircle className="w-4 h-4" />
                         </Button>
                       )}
 
                       <Button
                         variant="outline"
-                        onClick={() => { setSkipModal({ open: true, customer: c }); setSkipDate(new Date().toISOString().split('T')[0]); }}
+                        onClick={() => { setSkipModal({ open: true, customer: c }); setSkipDate(getISTISODate()); }}
                         disabled={isDone || c.status === 'cancelled'}
                         className="w-10 h-10 rounded-lg p-0 border-orange-200 text-orange-600 bg-orange-50 hover:bg-orange-100"
                         title="Skip Meal"
@@ -536,13 +772,23 @@ export default function Subscribed() {
                       </Button>
 
                       {c.status !== 'cancelled' && (
-                        <Button variant="outline" className="w-10 h-10 rounded-lg p-0 border-red-200 text-red-600 bg-red-50 hover:bg-red-100" onClick={() => handleCancel(c)} title="Cancel Sub">
-                          <Trash2 className="w-4 h-4" />
+                        <Button
+                          variant="outline"
+                          className="w-10 h-10 rounded-lg p-0 border-red-200 text-red-600 bg-red-50 hover:bg-red-100"
+                          onClick={() => handleCancel(c, cp)}
+                          title="Cancel Subscription"
+                        >
+                          <XCircle className="w-4 h-4" />
                         </Button>
                       )}
 
-                      <Button variant="outline" className="w-10 h-10 rounded-lg p-0 border-red-300 text-red-700 bg-red-100 hover:bg-red-200" onClick={() => handleDelete(c)} title="Delete Customer">
-                        <Trash2 className="w-4 h-4" strokeWidth={2.5} />
+                      <Button
+                        variant="outline"
+                        className="w-10 h-10 rounded-lg p-0 border-red-300 text-red-700 bg-red-100 hover:bg-red-200"
+                        onClick={() => handleDelete(c)}
+                        title="Delete Customer"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
@@ -553,7 +799,7 @@ export default function Subscribed() {
         )}
       </div>
 
-      {/* Add Customer Modal */}
+      {/* ─── Add Customer Modal ─────────────────────────────────────────────── */}
       <Dialog open={addModal} onOpenChange={v => { setAddModal(v); if (!v) setAddQrOpen(false); }}>
         <DialogContent className="sm:max-w-md w-[95%] rounded-3xl p-6 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -590,15 +836,16 @@ export default function Subscribed() {
                     <SelectContent>
                       {activePackages.map(p => (
                         <SelectItem key={p.id} value={p.id.toString()}>
-                          {p.name} — ₹{p.price}
+                          {p.name} — {p.meals_count ?? 10} meals — ₹{p.price}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 {selectedAddPkg && (
-                  <div className="p-3 bg-primary/5 rounded-xl border border-primary/20 text-sm">
-                    Amount: <span className="font-bold text-primary">₹{selectedAddPkg.price}</span>
+                  <div className="p-3 bg-primary/5 rounded-xl border border-primary/20 text-sm flex justify-between">
+                    <span>{selectedAddPkg.name} ({selectedAddPkg.meals_count ?? 10} meals)</span>
+                    <span className="font-bold text-primary">₹{selectedAddPkg.price}</span>
                   </div>
                 )}
                 <div className="space-y-2">
@@ -628,7 +875,7 @@ export default function Subscribed() {
         </DialogContent>
       </Dialog>
 
-      {/* Notify Modal */}
+      {/* ─── Notify Modal ───────────────────────────────────────────────────── */}
       <Dialog open={notifyModal.open} onOpenChange={o => !o && setNotifyModal({ ...notifyModal, open: false })}>
         <DialogContent className="sm:max-w-md w-[95%] rounded-3xl p-6">
           <DialogHeader>
@@ -649,8 +896,8 @@ export default function Subscribed() {
                   {type === 'meal' ? 'Meal Update' : type === 'low' ? 'Renew Pack (Low)' : 'Pack Done'}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {type === 'meal' ? `Meals: ${notifyModal.customer?.used}/${notifyModal.customer?.total} used` :
-                    type === 'low' ? `${notifyModal.customer?.total - notifyModal.customer?.used} meals left — urge renewal` :
+                  {type === 'meal' ? `Update on meals used` :
+                    type === 'low' ? 'Urge renewal — meals running low' :
                       'Pack complete — request renewal'}
                 </div>
               </button>
@@ -664,28 +911,32 @@ export default function Subscribed() {
         </DialogContent>
       </Dialog>
 
-      {/* Meal Used WhatsApp Prompt */}
-      <Dialog open={mealUsedModal.open} onOpenChange={o => !o && setMealUsedModal({ open: false, customer: null })}>
+      {/* ─── Meal Used WhatsApp Prompt ───────────────────────────────────────── */}
+      <Dialog open={mealUsedModal.open} onOpenChange={o => !o && setMealUsedModal({ open: false, customer: null, used: 0, total: 0, pkgName: '' })}>
         <DialogContent className="sm:max-w-md w-[95%] rounded-3xl p-6">
           <DialogHeader>
             <DialogTitle className="text-xl font-serif">Meal Marked Used ✓</DialogTitle>
           </DialogHeader>
           <div className="py-4 text-center space-y-2">
-            <div className="text-4xl font-black text-primary">{mealUsedModal.customer?.used} / {mealUsedModal.customer?.total}</div>
+            <div className="text-4xl font-black text-primary">{mealUsedModal.used} / {mealUsedModal.total}</div>
+            {mealUsedModal.pkgName && <div className="text-xs text-muted-foreground">{mealUsedModal.pkgName}</div>}
             <div className="text-sm text-muted-foreground">Send a meal update to {mealUsedModal.customer?.name}?</div>
           </div>
           <DialogFooter className="flex-col gap-2">
-            <Button onClick={() => handleSendMealUpdate(mealUsedModal.customer)} className="w-full h-12 rounded-xl bg-[#25D366] hover:bg-[#1DA851] text-white font-bold">
+            <Button
+              onClick={() => handleSendMealUpdate(mealUsedModal.customer, mealUsedModal.used, mealUsedModal.total - mealUsedModal.used, mealUsedModal.total)}
+              className="w-full h-12 rounded-xl bg-[#25D366] hover:bg-[#1DA851] text-white font-bold"
+            >
               <MessageCircle className="w-5 h-5 mr-2" /> Send WhatsApp Update
             </Button>
-            <Button variant="outline" onClick={() => setMealUsedModal({ open: false, customer: null })} className="w-full h-12 rounded-xl">
+            <Button variant="outline" onClick={() => setMealUsedModal({ open: false, customer: null, used: 0, total: 0, pkgName: '' })} className="w-full h-12 rounded-xl">
               Skip
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Skip Modal */}
+      {/* ─── Skip Modal ─────────────────────────────────────────────────────── */}
       <Dialog open={skipModal.open} onOpenChange={o => !o && setSkipModal({ ...skipModal, open: false })}>
         <DialogContent className="sm:max-w-md w-[95%] rounded-3xl p-6">
           <DialogHeader>
@@ -696,8 +947,11 @@ export default function Subscribed() {
               <Label>Skip Date</Label>
               <Input type="date" value={skipDate} onChange={e => setSkipDate(e.target.value)} className="h-12 rounded-xl" />
             </div>
-            <div className="p-4 bg-primary/5 rounded-xl text-sm text-primary border border-primary/20">
+            <div className="p-3 bg-primary/5 rounded-xl text-sm text-primary border border-primary/20">
               A skip confirmation message will be sent to {skipModal.customer?.name} on WhatsApp.
+            </div>
+            <div className="p-3 bg-orange-50 rounded-xl text-xs text-orange-700 border border-orange-200">
+              To remove a skip later, tap the orange day in the schedule grid.
             </div>
           </div>
           <DialogFooter>
@@ -708,8 +962,8 @@ export default function Subscribed() {
         </DialogContent>
       </Dialog>
 
-      {/* Cancel Modal */}
-      <Dialog open={cancelModal.open} onOpenChange={o => !o && setCancelModal({ open: false, customer: null })}>
+      {/* ─── Cancel Modal ───────────────────────────────────────────────────── */}
+      <Dialog open={cancelModal.open} onOpenChange={o => !o && setCancelModal({ open: false, customer: null, cp: null })}>
         <DialogContent className="sm:max-w-md w-[95%] rounded-3xl p-6">
           <DialogHeader>
             <DialogTitle className="text-xl font-serif text-red-600">Cancel Subscription</DialogTitle>
@@ -717,15 +971,16 @@ export default function Subscribed() {
           <div className="py-4 space-y-4">
             <p className="text-sm text-muted-foreground">Cancel subscription for <span className="font-bold text-foreground">{cancelModal.customer?.name}</span>?</p>
             {cancelModal.customer && (() => {
-              const pkg = packages.find(p => p.id === cancelModal.customer.package_id);
-              const pricePerMeal = pkg ? Math.round(pkg.price / 10) : 0;
-              const remaining = cancelModal.customer.total - cancelModal.customer.used;
+              const { cp, used, total, packageId } = getDisplayData(cancelModal.customer);
+              const pkg = packages.find(p => p.id === packageId);
+              const pricePerMeal = pkg ? Math.round(pkg.price / (pkg.meals_count ?? 10)) : 0;
+              const remaining = total - used;
               const refund = remaining * pricePerMeal;
               return (
                 <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
                   <div className="font-bold text-sm text-amber-900">Meal Return Calculation</div>
                   <div className="text-sm text-amber-800 space-y-1">
-                    <div>Meals Used: <span className="font-bold">{cancelModal.customer.used}/{cancelModal.customer.total}</span></div>
+                    <div>Meals Used: <span className="font-bold">{used}/{total}</span></div>
                     <div>Remaining Meals: <span className="font-bold">{remaining}</span></div>
                     <div>Price per Meal: <span className="font-bold">₹{pricePerMeal}</span></div>
                     <div className="text-base font-black pt-1">Refund Amount: ₹{refund}</div>
@@ -741,16 +996,16 @@ export default function Subscribed() {
             <Button variant="outline" onClick={() => handleConfirmCancel(false)} className="w-full h-12 rounded-xl border-red-200 text-red-600 hover:bg-red-50">
               Cancel Without Notification
             </Button>
-            <Button variant="ghost" onClick={() => setCancelModal({ open: false, customer: null })} className="w-full h-10 rounded-xl">
+            <Button variant="ghost" onClick={() => setCancelModal({ open: false, customer: null, cp: null })} className="w-full h-10 rounded-xl">
               Keep Subscription
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Edit Modal */}
+      {/* ─── Edit Modal ─────────────────────────────────────────────────────── */}
       <Dialog open={editModal.open} onOpenChange={o => !o && setEditModal({ ...editModal, open: false })}>
-        <DialogContent className="sm:max-w-md w-[95%] rounded-3xl p-6">
+        <DialogContent className="sm:max-w-md w-[95%] rounded-3xl p-6 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-serif">Edit Subscriber</DialogTitle>
           </DialogHeader>
@@ -764,14 +1019,14 @@ export default function Subscribed() {
               <Input value={editPhone} onChange={e => setEditPhone(e.target.value)} className="h-12 rounded-xl font-mono" />
             </div>
             <div className="space-y-2">
-              <Label>Package</Label>
+              <Label>Primary Package</Label>
               <Select value={editPkg} onValueChange={setEditPkg}>
                 <SelectTrigger className="h-12 rounded-xl">
                   <SelectValue placeholder="Select package" />
                 </SelectTrigger>
                 <SelectContent>
                   {packages.filter(p => p.is_active).map(p => (
-                    <SelectItem key={p.id} value={p.id.toString()}>{p.name} — ₹{p.price}</SelectItem>
+                    <SelectItem key={p.id} value={p.id.toString()}>{p.name} — {p.meals_count ?? 10} meals — ₹{p.price}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -781,7 +1036,7 @@ export default function Subscribed() {
               <RadioGroup value={editMode} onValueChange={setEditMode} className="flex gap-4">
                 {['cash', 'upi', 'scanpay'].map(m => (
                   <div key={m} className="flex items-center space-x-2">
-                    <RadioGroupItem value={m} id={`em-${m}`} />
+                    <input type="radio" id={`em-${m}`} name="editMode" value={m} checked={editMode === m} onChange={() => setEditMode(m)} className="accent-primary" />
                     <Label htmlFor={`em-${m}`} className="capitalize">{m === 'scanpay' ? 'Scan' : m}</Label>
                   </div>
                 ))}
@@ -790,6 +1045,22 @@ export default function Subscribed() {
             <div className="p-3 bg-blue-50 rounded-xl text-xs text-blue-800 border border-blue-200">
               Changes will also update this customer's Walk-in record.
             </div>
+
+            {/* Add another package */}
+            {editModal.customer && (
+              <Button
+                variant="outline"
+                className="w-full h-10 rounded-xl border-dashed border-primary/40 text-primary hover:bg-primary/5"
+                onClick={() => {
+                  setEditModal({ ...editModal, open: false });
+                  setAddPkgModal({ open: true, customer: editModal.customer });
+                  setAddPkgPkgId(activePackages[0]?.id.toString() || "");
+                  setAddPkgPayMode("cash"); setAddPkgCash(""); setAddPkgQrOpen(false);
+                }}
+              >
+                <Plus className="w-4 h-4 mr-2" /> Add Another Package
+              </Button>
+            )}
           </div>
           <DialogFooter>
             <Button onClick={saveEdit} className="w-full h-12 rounded-xl text-base font-bold">Save Changes</Button>
@@ -797,7 +1068,75 @@ export default function Subscribed() {
         </DialogContent>
       </Dialog>
 
-      {/* History Modal */}
+      {/* ─── Add Package to Existing Customer Modal ─────────────────────────── */}
+      <Dialog open={addPkgModal.open} onOpenChange={v => { setAddPkgModal({ ...addPkgModal, open: v }); if (!v) setAddPkgQrOpen(false); }}>
+        <DialogContent className="sm:max-w-md w-[95%] rounded-3xl p-6 max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-serif">Add Package — {addPkgModal.customer?.name}</DialogTitle>
+          </DialogHeader>
+          {addPkgQrOpen ? (
+            <div className="flex flex-col items-center gap-4 py-4">
+              <div className="text-3xl font-black text-primary">₹{addPkgTotal}</div>
+              <div className="p-3 bg-white rounded-2xl border">
+                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(addPkgUpiUrl)}`} alt="QR" className="w-40 h-40" />
+              </div>
+              <div className="flex gap-2 w-full">
+                <Button className="flex-1 h-12 rounded-xl font-bold" onClick={handleAddPackageToCustomer}>Payment Done</Button>
+                <Button variant="outline" className="flex-1 h-12 rounded-xl" onClick={() => setAddPkgQrOpen(false)}>Back</Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>Select Package</Label>
+                  <Select value={addPkgPkgId} onValueChange={setAddPkgPkgId}>
+                    <SelectTrigger className="h-12 rounded-xl">
+                      <SelectValue placeholder="Choose a package" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activePackages.map(p => (
+                        <SelectItem key={p.id} value={p.id.toString()}>
+                          {p.name} — {p.meals_count ?? 10} meals — ₹{p.price}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {selectedAddPkgPkg && (
+                  <div className="p-3 bg-primary/5 rounded-xl border border-primary/20 text-sm flex justify-between">
+                    <span>{selectedAddPkgPkg.name} ({selectedAddPkgPkg.meals_count ?? 10} meals)</span>
+                    <span className="font-bold text-primary">₹{selectedAddPkgPkg.price}</span>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>Payment Mode</Label>
+                  <PaymentModeSelect value={addPkgPayMode} onChange={setAddPkgPayMode} />
+                </div>
+                {addPkgPayMode === 'cash' && addPkgTotal > 0 && (
+                  <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 space-y-2">
+                    <Label className="text-amber-900 font-bold text-xs">Cash Received</Label>
+                    <Input type="number" placeholder="₹" value={addPkgCash} onChange={e => setAddPkgCash(e.target.value)} className="bg-white border-amber-300 h-11" />
+                    {addPkgCash !== "" && (
+                      <div className={`flex justify-between text-sm font-bold p-2 rounded-lg ${(Number(addPkgCash) - addPkgTotal) >= 0 ? 'text-green-800 bg-green-50' : 'text-red-800 bg-red-50'}`}>
+                        <span>{(Number(addPkgCash) - addPkgTotal) >= 0 ? 'Change:' : 'Short:'}</span>
+                        <span>₹{Math.abs(Number(addPkgCash) - addPkgTotal)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button onClick={handleAddPackageToCustomer} className="w-full h-14 text-lg rounded-xl font-bold">
+                  {addPkgPayMode === 'scanpay' ? 'Show QR & Add Package' : 'Add Package'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── History Modal ───────────────────────────────────────────────────── */}
       <Dialog open={historyModal.open} onOpenChange={o => !o && setHistoryModal({ open: false, customer: null })}>
         <DialogContent className="sm:max-w-md w-[95%] rounded-3xl p-6 max-h-[80vh] overflow-y-auto">
           <DialogHeader>

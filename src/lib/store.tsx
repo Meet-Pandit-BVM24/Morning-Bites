@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
-import { dbGet, Customer, Walkin, MenuItem, Bill, MealSkip, Package, Promotion, Preorder } from "./supabase";
+import { dbGet, Customer, Walkin, MenuItem, Bill, MealSkip, Package, Promotion, Preorder, CustomerPackage } from "./supabase";
 import { useToast } from "@/hooks/use-toast";
 
 type StoreState = {
@@ -11,6 +11,7 @@ type StoreState = {
   mealSkips: MealSkip[];
   packages: Package[];
   promotions: Promotion[];
+  customerPackages: CustomerPackage[];
   isLoading: boolean;
   error: Error | null;
   refresh: () => Promise<void>;
@@ -29,6 +30,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [mealSkips, setMealSkips] = useState<MealSkip[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [customerPackages, setCustomerPackages] = useState<CustomerPackage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -67,6 +69,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } catch {
         setPromotions([]);
       }
+
+      try {
+        const cp = await dbGet<CustomerPackage>('customer_packages');
+        setCustomerPackages(cp);
+      } catch {
+        setCustomerPackages([]);
+      }
     } catch (err: any) {
       console.error(err);
       setError(err);
@@ -82,7 +91,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   return (
     <StoreContext.Provider value={{
-      customers, walkins, menuItems, bills, preorders, mealSkips, packages, promotions,
+      customers, walkins, menuItems, bills, preorders, mealSkips, packages, promotions, customerPackages,
       isLoading, error, refresh: loadData,
       searchQuery, setSearchQuery
     }}>

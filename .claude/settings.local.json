@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git -C \"/c/Projects/Morning Bites/morningbites-cra\" status)"
+      "Bash(git -C \"/c/Projects/Morning Bites/morningbites-cra\" status)",
+      "Bash(npx tsc *)"
     ]
   }
 }

@@ -32,6 +32,28 @@ export function formatIST(isoStr: string): string {
   }
 }
 
+// Returns current date in IST as YYYY-MM-DD (e.g. "2026-04-23")
+export function getISTISODate(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+}
+
+// Returns current date in IST as localized string (e.g. "23/04/2026")
+export function getISTDateDisplay(): string {
+  return new Date().toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric'
+  });
+}
+
+// Returns formatted date string like "23/4/2026" from ISO date
+export function formatISTDate(isoDate: string): string {
+  try {
+    const [y, m, d] = isoDate.split('-');
+    return `${parseInt(d)}/${parseInt(m)}/${y}`;
+  } catch {
+    return isoDate;
+  }
+}
+
 export interface Customer {
   id: number;
   name: string;
@@ -109,7 +131,22 @@ export interface Package {
   name: string;
   description: string | null;
   price: number;
+  meals_count: number; // number of meals in this package (defaults to 10)
   is_active: boolean;
+  created_at: string;
+}
+
+export interface CustomerPackage {
+  id: number;
+  customer_id: number;
+  package_id: number;
+  used: number;
+  total: number;
+  pack_start_date: string;
+  payment_mode: 'cash' | 'upi' | 'scanpay';
+  status: 'active' | 'done' | 'cancelled';
+  renew_count: number;
+  last_renewed: string | null;
   created_at: string;
 }
 
@@ -192,6 +229,25 @@ export async function dbDel(table: string, id: number): Promise<void> {
       Authorization: `Bearer ${supabaseKey}`,
       'Content-Type': 'application/json',
     },
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(text);
+  }
+}
+
+export async function dbUpdWhere(table: string, filter: string, data: Record<string, unknown>): Promise<void> {
+  ensureSupabaseEnv();
+  const url = `${supabaseUrl}/rest/v1/${table}?${filter}`;
+  const r = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      apikey: supabaseKey,
+      Authorization: `Bearer ${supabaseKey}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(data),
   });
   if (!r.ok) {
     const text = await r.text();

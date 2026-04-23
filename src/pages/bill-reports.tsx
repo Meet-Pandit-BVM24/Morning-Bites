@@ -75,10 +75,11 @@ export default function BillReports() {
   const editTotal = editItems.reduce((s, it) => s + it.price * it.qty, 0);
 
   const handleEditQtyChange = (idx: number, delta: number) => {
+    if (idx < 0) return;
     setEditItems(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], qty: Math.max(0, next[idx].qty + delta) };
-      return next.filter((_, i) => i === idx ? next[idx].qty > 0 : true);
+      return next.filter((_, i) => i !== idx || next[idx].qty > 0);
     });
   };
 
@@ -311,19 +312,33 @@ export default function BillReports() {
             {activeMenuItems.length > 0 && (
               <div className="space-y-2">
                 <Label>Add Items</Label>
-                <div className="border border-border rounded-xl divide-y divide-border max-h-40 overflow-y-auto">
-                  {activeMenuItems.map(item =>
-                    item.options.map((opt, optIdx) => (
-                      <button
-                        key={`${item.id}-${optIdx}`}
-                        onClick={() => handleAddMenuItemToEdit(item, optIdx)}
-                        className="w-full flex justify-between items-center px-3 py-2 text-sm hover:bg-muted/50 transition-colors"
-                      >
-                        <span className="font-medium">{item.name} ({opt.name})</span>
-                        <span className="text-primary font-bold">+ ₹{opt.price}</span>
-                      </button>
-                    ))
-                  )}
+                <div className="flex flex-col gap-2 max-h-56 overflow-y-auto pr-1">
+                  {activeMenuItems.map(item => (
+                    <div key={item.id} className="rounded-xl border border-border overflow-hidden">
+                      <div className="px-3 py-1.5 bg-muted/40 text-xs font-bold text-muted-foreground">{item.name}</div>
+                      {item.options.map((opt, optIdx) => {
+                        const existingIdx = editItems.findIndex(it => it.name === item.name && it.option === opt.name);
+                        const qty = existingIdx >= 0 ? editItems[existingIdx].qty : 0;
+                        return (
+                          <div key={optIdx} className="flex items-center justify-between px-3 py-2 bg-card border-t border-border/50">
+                            <div>
+                              <span className="text-sm font-medium">{opt.name}</span>
+                              <span className="text-xs text-muted-foreground ml-2">₹{opt.price}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button variant="outline" size="icon" className="h-7 w-7 rounded-full" onClick={() => handleEditQtyChange(existingIdx, -1)} disabled={qty === 0}>
+                                <Minus className="w-3 h-3" />
+                              </Button>
+                              <span className="w-5 text-center font-bold text-sm">{qty}</span>
+                              <Button variant="outline" size="icon" className="h-7 w-7 rounded-full" onClick={() => handleAddMenuItemToEdit(item, optIdx)}>
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

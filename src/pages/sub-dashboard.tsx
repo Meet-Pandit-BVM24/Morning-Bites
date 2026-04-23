@@ -42,15 +42,34 @@ export default function SubDashboard() {
     return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
   };
 
-  const weekGrid = days.map((d, i) => ({
-    day: d,
-    index: i,
-    count: activeSubs.filter(c => isScheduled(c, i)).length,
-    dateStr: getDateForDayIndex(i)
-  }));
+  const getISOForDayIndex = (dayIdx: number) => {
+    const d = new Date(today);
+    const diff = dayIdx - dayIndex;
+    d.setDate(d.getDate() + diff);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+  };
 
+  const weekGrid = days.map((d, i) => {
+    const dayIso = getISOForDayIndex(i);
+    const daySkipIds = new Set(
+      mealSkips.filter(s => s.skip_date === dayIso && !s.unskipped).map(s => s.customer_id)
+    );
+    return {
+      day: d,
+      index: i,
+      count: activeSubs.filter(c => isScheduled(c, i) && !daySkipIds.has(c.id)).length,
+      dateStr: getDateForDayIndex(i),
+      dayIso,
+      skipIds: daySkipIds
+    };
+  });
+
+  const selectedDayIso = selectedDay !== null ? getISOForDayIndex(selectedDay) : '';
+  const selectedDaySkipIds = new Set(
+    mealSkips.filter(s => s.skip_date === selectedDayIso && !s.unskipped).map(s => s.customer_id)
+  );
   const selectedDayCustomers = selectedDay !== null
-    ? activeSubs.filter(c => isScheduled(c, selectedDay))
+    ? activeSubs.filter(c => isScheduled(c, selectedDay) && !selectedDaySkipIds.has(c.id))
     : [];
 
   const currentList = listTab === 'today' ? todayPacks : tomorrowPacks;
