@@ -25,6 +25,8 @@ yarn-error.log*
 db-backup-20260428
 
 .env
+.env.example
 scripts/migrate-db.mjs
-.env.example
-.env.example
+
+
+

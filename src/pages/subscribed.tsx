@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { dbUpd, dbIns, dbUpdWhere, logActivity, getActivityLogs, formatIST, formatISTDate, getISTISODate, ActivityLog, UPI_ID, CustomerPackage, Package } from "@/lib/supabase";
+import { sendWAMessage } from "@/lib/whatsapp";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -167,7 +168,7 @@ export default function Subscribed() {
     const msg = selectedAddPkgs.length === 1
       ? buildActiveSubMsg(addName, primaryPkg?.name || 'Sprouts Salad', primaryMeals, primaryPkg?.price || 0, dateDisplay)
       : buildActiveSubMsgMulti(addName, selectedAddPkgs, dateDisplay);
-    window.open(`https://wa.me/91${addPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+    sendWAMessage(addPhone, msg);
 
     try {
       const existingCust = customers.find(c => c.phone === addPhone);
@@ -238,7 +239,7 @@ export default function Subscribed() {
     const mealsCount = pkg?.meals_count ?? 10;
 
     const msg = buildActiveSubMsg(c.name, pkg?.name || 'Sprouts Salad', mealsCount, pkg?.price || 0, dateDisplay);
-    window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    sendWAMessage(c.phone, msg);
 
     try {
       await dbIns('customer_packages', {
@@ -288,7 +289,7 @@ export default function Subscribed() {
 
   const handleSendMealUpdate = (customer: any, used: number, remaining: number, total: number, pkgName: string) => {
     const msg = buildMealUpdateMsg(customer.name, used, remaining, total, pkgName || undefined);
-    window.open(`https://wa.me/91${customer.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    sendWAMessage(customer.phone, msg);
     setMealUsedModal({ open: false, customer: null, used: 0, total: 0, pkgName: '' });
   };
 
@@ -322,7 +323,7 @@ export default function Subscribed() {
     const mealsCount = pkg?.meals_count ?? cp?.total ?? 10;
 
     const msg = buildActiveSubMsg(c.name, pkg?.name || 'Sprouts Salad', mealsCount, pkg?.price || 0, dateDisplay);
-    window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    sendWAMessage(c.phone, msg);
 
     try {
       if (cp) {
@@ -374,7 +375,7 @@ export default function Subscribed() {
       const total = cp ? cp.total : c.total;
       const refundAmount = (total - used) * pricePerMeal;
       const msg = `Hello ${c.name},\n\nYour Morning Bites subscription has been cancelled.\n\n📊 Meals Used: ${used}/${total}\n💰 Refund Amount: ₹${refundAmount} (${total - used} meals × ₹${pricePerMeal})\n\nWe hope to see you again! 🌿\n\nMorning Bites`;
-      window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+      sendWAMessage(c.phone, msg);
     }
 
     try {
@@ -434,7 +435,7 @@ export default function Subscribed() {
     } else if (notifyModal.type === 'done') {
       msg = buildPackDoneMsg(c.name, total, price, pkgName);
     }
-    window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    sendWAMessage(c.phone, msg);
     setNotifyModal({ open: false, customer: null, type: "", cp: null });
   };
 
@@ -484,7 +485,7 @@ export default function Subscribed() {
       const dateLines = datesToSkip.map(d => `📅 ${new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}`).join('\n');
       msg = `Hello ${c.name},\n\nConfirmed — your Morning Bites pack is skipped on:\n\n${dateLines}${pkgLine}\n\nYour remaining meals stay the same.\n\nMorning Bites 🌿`;
     }
-    window.open(`https://wa.me/91${c.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    sendWAMessage(c.phone, msg);
 
     try {
       for (const date of datesToSkip) {

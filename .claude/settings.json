@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Read(//c/Users/mpandit/.claude/projects/c--Projects-Morning-Bites-morningbites-cra/memory/**)",
+      "Bash(npx craco *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Projects\\\\Morning Bites\\\\morningbites-cra\\\\src\" -Recurse -Filter \"*.tsx\" -o Name)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Projects\\\\Morning Bites\\\\morningbites-cra\\\\src\" -Recurse -Name | Where-Object {$_ -match \"\\(pages|components\\)\" -and $_ -match \"\\\\.\\(tsx|ts\\)$\"} | Sort-Object)",
+      "Bash(git checkout *)",
+      "Bash(git fetch *)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\mpandit\\.claude\\projects\\c--Projects-Morning-Bites-morningbites-cra\\memory"
     ]
   }
 }

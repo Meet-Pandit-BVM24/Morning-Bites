@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { dbIns, dbUpd, dbUpdWhere, logActivity, getActivityLogs, getPromotionHistory, formatIST, formatISTDate, getISTISODate, ActivityLog, UPI_ID } from "@/lib/supabase";
+import { sendWAMessage } from "@/lib/whatsapp";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,7 +70,7 @@ export default function Walkins() {
         toast({ title: "Walk-in updated" });
       } else {
         const msg = `Hello ${name}! 🌱\n\nThank you for visiting Morning Bites today! We're happy to serve you fresh, healthy sprouts food every morning.\n\nWould you like to know about our subscription packs? Ask us in store or reply to this message!\n\nTiming: 6:30 AM to 9:00 AM\nCall us: 9099172237 / 9429929822\n\nMorning Bites 🌿`;
-        window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+        sendWAMessage(phone, msg);
 
         const today = getISTISODate();
         await dbIns('walkins', { name, phone, visit_date: today, is_deleted: false });
@@ -117,7 +118,7 @@ export default function Walkins() {
           const totalMeals = selectedPkgs.reduce((s, p) => s + (p.meals_count ?? 10), 0);
           return `Hello ${subWalkin.name},\n\nWelcome to Morning Bites! 🌿\n\nYour subscriptions are now active!\n\n📦 Packages:\n${pkgsList}\n\n🍽️ Total meals: ${totalMeals}\n💰 Total amount: ₹${subTotal}\n📅 Start date: ${dateDisplay}\n\nEnjoy fresh sprouts daily!\n✅ Healthy • Hygienic • Tasty\n\n📍 Akota Garden, Near Radha Krishan Circle, Akota, Vadodara\n⏰ 6:30 AM to 9:00 AM\n📞 9099172237 / 9429929822\n\nSee you tomorrow morning!\nMorning Bites 🌿`;
         })();
-    window.open(`https://wa.me/91${subWalkin.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    sendWAMessage(subWalkin.phone, msg);
 
     try {
       let custId: number | null = null;
@@ -204,8 +205,7 @@ export default function Walkins() {
       ? `Hello ${promoteWalkin.name}! 🌱\n\n${promo.title}\n\n${promo.description}\n\nMorning Bites 🌿`
       : `Hello ${promoteWalkin.name}! 🌱\n\nWe're Morning Bites – your daily sprouts & healthy snack stall.\n\n✅ Get 10 fresh meals\n🍃 Healthy food every morning\n\nInterested? Visit us or reply to subscribe!\n\nMorning Bites 🌿`;
 
-    // Open WhatsApp synchronously — no await before this
-    window.open(`https://wa.me/91${promoteWalkin.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    sendWAMessage(promoteWalkin.phone, msg);
 
     // Log in background (no await needed)
     const cust = getCustomerForPhone(promoteWalkin.phone);
